@@ -49,6 +49,10 @@ function calculate(){
   const selectedAccounts=selected==='all'?accounts:accounts.filter(a=>a.id===selected);
   const ops=operations.filter(o=>selected==='all'||o.account_id===selected);
   const start=new Date(Date.now()-365*DAY);
+  const today=iso(new Date());
+  const latestOperationDate=ops.reduce((max,o)=>o.operation_date>max?o.operation_date:max,today);
+  const endDate=latestOperationDate>today?new Date(latestOperationDate+'T12:00:00'):new Date();
+  const calculationDays=Math.max(365,Math.ceil((endDate-start)/DAY));
   let capital=selectedAccounts.reduce((s,a)=>s+num(a.initial_balance),0);
   let totalEarned=0;
   let lockedPct=0;
@@ -56,7 +60,7 @@ function calculate(){
   let periodEarned=0;
   let periodNumber=capital>0?1:0;
   const out=[];
-  for(let i=0;i<=365;i++){
+  for(let i=0;i<=calculationDays;i++){
     const date=iso(new Date(start.getTime()+i*DAY));
     const dayOps=ops.filter(o=>o.operation_date===date);
     const balanceEntries=dayOps.filter(o=>o.operation_type==='balance');
@@ -102,8 +106,10 @@ const REWARD_QUOTES=[["Путешествие в тысячу миль начи�
 const REWARD_BASE_RECORD=1.55;
 function rewardAnalysis(accountId,date,extraAmount){
   const account=accounts.find(a=>a.id===accountId),ops=operations.filter(o=>o.account_id===accountId),start=new Date(Date.now()-365*DAY);
+  const rewardEnd=new Date(date+'T12:00:00');
+  const rewardDays=Math.max(365,Math.ceil((rewardEnd-start)/DAY));
   let capital=num(account?.initial_balance),earned=0,targetPct=0,maxBefore=REWARD_BASE_RECORD;
-  for(let i=0;i<=365;i++){
+  for(let i=0;i<=rewardDays;i++){
     const day=iso(new Date(start.getTime()+i*DAY)),dayOps=ops.filter(o=>o.operation_date===day),balances=dayOps.filter(o=>o.operation_type==='balance');
     if(balances.length)capital=num(balances[balances.length-1].amount);
     capital+=dayOps.filter(o=>o.operation_type==='investment').reduce((a,o)=>a+num(o.amount),0);
@@ -124,19 +130,5 @@ async function showReward(result){
 }
 $('rewardCloseBtn').onclick=closeReward;$('rewardVideo').onended=closeReward;$('rewardSoundBtn').onclick=async()=>{const v=$('rewardVideo');v.muted=!v.muted;$('rewardSoundBtn').textContent=v.muted?'🔇 Включить звук':'🔊 Звук включён';if(v.paused)try{await v.play()}catch(e){}};
 
-
-function capitalAvailableForAccount(accountId,date){
-  const account=accounts.find(a=>a.id===accountId);
-  if(!account)return 0;
-  let capital=num(account.initial_balance);
-  const relevant=operations
-    .filter(o=>o.account_id===accountId&&o.operation_date<=date)
-    .sort((a,b)=>a.operation_date.localeCompare(b.operation_date)||String(a.created_at||'').localeCompare(String(b.created_at||'')));
-  for(const o of relevant){
-    if(o.operation_type==='balance')capital=num(o.amount);
-    else if(o.operation_type==='investment')capital+=num(o.amount);
-  }
-  return capital;
-}
-$('saveOperationBtn').onclick=async()=>{const payload={account_id:$('opAccount').value,operation_date:$('opDate').value,operation_type:$('opType').value,amount:num($('opAmount').value),category:$('opType').value==='profit'?'Заработок':'Инвестиция',comment:$('opComment').value.trim()||null};if(!payload.account_id||!payload.operation_date||payload.amount<=0)return alert('Заполни дату и значение больше нуля');if(payload.operation_type==='profit'){const availableCapital=capitalAvailableForAccount(payload.account_id,payload.operation_date);if(availableCapital<=0)return alert('Для выбранного счёта на эту дату нет стартового капитала или инвестиции. Проверь счёт и дату.')}const id=$('editId').value,isNewProfit=!id&&payload.operation_type==='profit',reward=isNewProfit?rewardAnalysis(payload.account_id,payload.operation_date,payload.amount):null,{error}=id?await db.from('operations').update(payload).eq('id',id):await db.from('operations').insert(payload);if(error)return alert(error.message);hide('operationModal');await loadAll();if(reward)showReward(reward)};$('saveSettingsBtn').onclick=async()=>{const {error}=await db.from('app_settings').update({target_balance:num($('targetBalance').value),currency:$('currency').value.trim()||'PLN'}).eq('id',1);if(error)return alert(error.message);hide('settingsModal');loadAll()};function subscribeRealtime(){db.channel('finance-live-v3').on('postgres_changes',{event:'*',schema:'public',table:'operations'},loadAll).on('postgres_changes',{event:'*',schema:'public',table:'app_settings'},loadAll).subscribe()}window.addEventListener('resize',()=>timeline.length&&renderAll());$('dateFrom').value=iso(new Date(Date.now()-29*DAY));$('dateTo').value=iso(new Date());startApp().catch(e=>msg('loginMessage',e.message,'error'));
+$('saveOperationBtn').onclick=async()=>{const payload={account_id:$('opAccount').value,operation_date:$('opDate').value,operation_type:$('opType').value,amount:num($('opAmount').value),category:$('opType').value==='profit'?'Заработок':'Инвестиция',comment:$('opComment').value.trim()||null};if(!payload.account_id||!payload.operation_date||payload.amount<=0)return alert('Заполни дату и значение больше нуля');if(payload.operation_type==='profit'){const preview=calculate().find(x=>x.date===payload.operation_date);if(!preview||preview.capital<=0)return alert('Сначала добавь стартовую инвестицию или текущий капитал. Без капитала процент рассчитать невозможно.')}const id=$('editId').value,isNewProfit=!id&&payload.operation_type==='profit',reward=isNewProfit?rewardAnalysis(payload.account_id,payload.operation_date,payload.amount):null,{error}=id?await db.from('operations').update(payload).eq('id',id):await db.from('operations').insert(payload);if(error)return alert(error.message);hide('operationModal');await loadAll();if(reward)showReward(reward)};$('saveSettingsBtn').onclick=async()=>{const {error}=await db.from('app_settings').update({target_balance:num($('targetBalance').value),currency:$('currency').value.trim()||'PLN'}).eq('id',1);if(error)return alert(error.message);hide('settingsModal');loadAll()};function subscribeRealtime(){db.channel('finance-live-v3').on('postgres_changes',{event:'*',schema:'public',table:'operations'},loadAll).on('postgres_changes',{event:'*',schema:'public',table:'app_settings'},loadAll).subscribe()}window.addEventListener('resize',()=>timeline.length&&renderAll());$('dateFrom').value=iso(new Date(Date.now()-29*DAY));$('dateTo').value=iso(new Date());startApp().catch(e=>msg('loginMessage',e.message,'error'));
 </script></body></html>
