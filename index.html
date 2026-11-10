@@ -117,7 +117,8 @@ function randomNotLast(max,key){let n=Math.floor(Math.random()*max),last=Number(
 function closeReward(){const v=$('rewardVideo');v.pause();v.removeAttribute('src');v.load();hide('rewardOverlay');document.body.classList.remove('reward-open')}
 async function showReward(result){
   const category=result.isRecord?'record':result.pct<=.90?'low':result.pct<=1.20?'normal':'high';
-  const videoIndex=randomNotLast(5,'reward-video-'+category)+1,quote=REWARD_QUOTES[randomNotLast(REWARD_QUOTES.length,'reward-quote')];
+  const VIDEO_COUNTS={low:5,normal:10,high:5,record:5};
+  const videoIndex=randomNotLast(VIDEO_COUNTS[category]||5,'reward-video-'+category)+1,quote=REWARD_QUOTES[randomNotLast(REWARD_QUOTES.length,'reward-quote')];
   const v=$('rewardVideo');$('rewardPercent').textContent=(result.isRecord?'🏆 Новый рекорд: ':'Результат дня: ')+pct(result.pct);$('rewardQuote').innerHTML='«'+esc(quote[0])+'»<br>— '+esc(quote[1]);
   v.src='./'+category+'/'+videoIndex+'.mp4';v.muted=false;show('rewardOverlay');document.body.classList.add('reward-open');
   try{await v.play();$('rewardSoundBtn').textContent='🔊 Звук включён'}catch(e){v.muted=true;try{await v.play()}catch(_){}$('rewardSoundBtn').textContent='🔇 Включить звук'}
